@@ -10,6 +10,7 @@
     "cors": "^2.8.5",
     "debug": "~2.6.9",
     "express": "~4.16.1",
+    "firebase": "^7.2.0",
     "firebase-admin": "^8.6.0",
     "morgan": "~1.9.1",
     "request": "^2.88.0",
