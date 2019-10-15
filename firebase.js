@@ -7,8 +7,7 @@ var defaultApp = admin.initializeApp({
   databaseURL: "https://stadiumer-a6302.firebaseio.com"
 });
 
-var firestore = defaultApp.firestore();
-
 module.exports = {
-    db: firestore,
+    db: defaultApp.firestore(),
+    auth: defaultApp.auth()
 };

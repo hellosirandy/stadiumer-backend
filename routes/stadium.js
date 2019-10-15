@@ -22,7 +22,7 @@ router.get('/', function(req, res) {
     var stadium;
     db.collection('stadium').doc(req.query.id).get().then(querySnapshot => {
       stadium = processStadium(querySnapshot);
-      return db.collection('stadium').where(`sports.${stadium.sports[0]}.capacity`, '>', 0).get();
+      return db.collection('stadium').limit(6).where(`sports.${stadium.sports[0]}.capacity`, '>', 0).get();
     }).then(querySnapshot => {
       var recommendations = querySnapshot.docs.filter(doc => doc.id !== stadium.id).map(doc => processStadium(doc));
       stadium.recommendations = recommendations;
