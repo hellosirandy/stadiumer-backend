@@ -1,5 +1,6 @@
 var express = require('express');
 var router = express.Router();
+var async = require('async');
 var auth = require('../firebase').auth;
 var db = require('../firebase').db;
 var firestore = require('firebase-admin').firestore;
@@ -33,25 +34,70 @@ router.get('/', function (req, res) {
       res.status(400).json(err);
     });
   } else if (stadiumId) {
-    db.collection('/review').where('stadiumId','==', stadiumId).get().then(function (querySnapshot) {
-      var result = querySnapshot.docs.map(function (doc) {
-        return processData(doc);
+    db.collection('/review').where('stadiumId', '==', stadiumId).get().then(function (querySnapshot) {
+      var authors = Array.from(new Set(querySnapshot.docs.map(function (doc) {
+        return doc.data().author;
+      })));
+      var parallelFunctions = {};
+      authors.forEach(function (author) {
+        parallelFunctions[author] = function (callback) {
+          db.doc('user/' + author).get().then(function (docSnapshot) {
+            callback(null, docSnapshot.data());
+          }).catch(function (err) {
+            callback(err);
+          }); 
+        }
       });
-      res.json(result);
+      async.parallel(parallelFunctions, function (err, userData) {
+        if (err) {
+          throw err;
+        }
+        var reviews = querySnapshot.docs.map(function (doc) {
+          return processData(doc, { userData: userData });
+        });
+        res.json(reviews);
+      });
+      
     }).catch(function (err) {
-      res.status(400).json(err);
+      console.log(err);
+      res.status(400).json({message: err});
     });
   }
   return;
 });
 
-var processData = function (snapshot) {
+router.get('/user/:userId', function (req, res) {
+  db.collection('review').where('author', '==', req.params.userId).get().then(function (querySnapshot) {
+    var reviews = querySnapshot.docs.map(function (doc) {
+      return processData(doc);
+    });
+    res.json(reviews);
+  });
+})
+
+var processData = function (snapshot, additionalData) {
   var data = snapshot.data();
-  return {
+  var result = {
     ...data,
     timestamp: data.timestamp.toDate(),
-    id: snapshot.id
+    id: snapshot.id,
   };
+  if (additionalData && additionalData.userData && additionalData.userData[data.author]) {
+    result.author = {
+      id: data.author,
+      ...additionalData.userData[data.author]
+    }
+  }
+  if (additionalData && additionalData.stadiumData && additionalData.stadiumData[data.stadiumId]) {
+    result.stadium = {
+      id: data.stadiumId,
+      ...additionalData.stadiumData[data.stadiumId]
+    }
+  }
+  return result;
 }
 
-module.exports = router;
+// module.exports = router;
+
+exports.router = router;
+exports.professReviewData = processData;

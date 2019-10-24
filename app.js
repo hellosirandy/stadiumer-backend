@@ -7,7 +7,7 @@ require('./firebase');
 var indexRouter = require('./routes/index');
 var stadiumRouter = require('./routes/stadium');
 var userRouter = require('./routes/user');
-var reviewRouter = require('./routes/review');
+var reviewRouter = require('./routes/review').router;
 var app = express();
 
 app.use(cors());
