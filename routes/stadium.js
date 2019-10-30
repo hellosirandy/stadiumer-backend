@@ -5,6 +5,7 @@ var firestore = require('firebase-admin').firestore;
 var async = require('async');
 var algoliasearch = require('algoliasearch');
 var db = require('../firebase').db;
+var auth = require('../firebase').auth;
 var GOOGLE_MAP_API_KEY = require('../secrets').GOOGLE_API_KEY;
 var algoliaAPIKEY = require('../secrets').ALGOLIA_API_KEY;
 var algoliaClient = algoliasearch('U596FP80VW', algoliaAPIKEY);
@@ -125,56 +126,68 @@ router.get('/firstload', function (req, res) {
 });
 
 router.post('/', function (req, res) {
-  var locality = '';
-  var website = '';
-  var phone = '';
-  var geoUri = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=' + 
-      encodeURIComponent(req.body.name) + '&types=establishment&location=' + 
+  auth.verifyIdToken(req.headers.authorization || '').then(function (decodedIdToken) {
+    return db.collection('user').doc(decodedIdToken.uid).get();
+  }).then(function (docSnapshot) {
+    if (docSnapshot.data().role === 'admin') {
+      var locality = '';
+      var website = '';
+      var phone = '';
+      var photoReferences;
+      var geoUri = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=' + 
+          encodeURIComponent(req.body.name) + '&types=establishment&location=' + 
       req.body.location.lat + ',' + req.body.location.lon + 
       '&radius=50&key=' + GOOGLE_MAP_API_KEY;
-  rp({ uri: geoUri, json: true }).then(function (result) {
-    var placeId = result.predictions[0].place_id;
-    var placeUri = 'https://maps.googleapis.com/maps/api/place/details/json?place_id=' + 
-      placeId + '&fields=formatted_address,name,website,rating,formatted_phone_number&key=' + 
-      GOOGLE_MAP_API_KEY;
-    return rp({ uri: placeUri, json: true })
-  }).then(function (result) {
-    var localityUri = 'https://maps.googleapis.com/maps/api/geocode/json?result_type=locality&latlng=' + req.body.location.lat + ',' + req.body.location.lon + '&key=' + GOOGLE_MAP_API_KEY;
-    website = result.result.website || '';
-    phone = result.result.formatted_phone_number || '';
-    address = (result.result.formatted_address || '').trim().replace(/-/g, '');
-    return rp({ uri: localityUri, json: true });
-  }).then(function (result) {
-    locality = result.status === 'OK' ? result.results[0].formatted_address.trim().replace(/-/g, '') : '';
-    var leagues = [];
-    var tournaments = [];
-    Object.keys(req.body.sports).forEach(function (sport) {
-      Object.keys(req.body.sports[sport].leagues || []).forEach(function (league) {
-        leagues.push(league);
+      rp({ uri: geoUri, json: true }).then(function (result) {
+        var placeId = result.predictions[0].place_id;
+        var placeUri = 'https://maps.googleapis.com/maps/api/place/details/json?place_id=' + 
+          placeId + '&fields=formatted_address,name,website,rating,formatted_phone_number,photos&key=' + 
+          GOOGLE_MAP_API_KEY;
+        return rp({ uri: placeUri, json: true })
+      }).then(function (result) {
+        var localityUri = 'https://maps.googleapis.com/maps/api/geocode/json?result_type=locality&latlng=' + req.body.location.lat + ',' + req.body.location.lon + '&key=' + GOOGLE_MAP_API_KEY;
+        website = result.result.website || '';
+        phone = result.result.formatted_phone_number || '';
+        address = (result.result.formatted_address || '').trim().replace(/-/g, '');
+        photoReferences = (result.result.photos || []).map(photo => photo.photo_reference);
+        return rp({ uri: localityUri, json: true });
+      }).then(function (result) {
+        locality = result.status === 'OK' ? result.results[0].formatted_address.trim().replace(/-/g, '') : '';
+        var leagues = [];
+        var tournaments = [];
+        Object.keys(req.body.sports).forEach(function (sport) {
+          Object.keys(req.body.sports[sport].leagues || []).forEach(function (league) {
+            leagues.push(league);
+          });
+          Object.keys(req.body.sports[sport].tournaments || []).forEach(function (tournament) {
+            tournaments.push(tournament);
+          });
+        });
+        var stadium = {
+          name: req.body.name,
+          opened: firestore.Timestamp.fromDate(new Date(req.body.opened)),
+          location: new firestore.GeoPoint(req.body.location.lat, req.body.location.lon),
+          locality: locality,
+          address: address,
+          phone: phone,
+          website: website,
+          sports: req.body.sports,
+          architects: req.body.architects,
+          leagues: leagues,
+          tournaments: tournaments,
+          photoReferences: photoReferences
+        };
+        return db.collection('stadium').add(stadium).then();
+      }).then(function (docRef) {
+        res.status(201).json(docRef.id);
+      }).catch(function (err) {
+        res.status(400).json(err);
       });
-      Object.keys(req.body.sports[sport].tournaments || []).forEach(function (tournament) {
-        tournaments.push(tournament);
-      });
-    });
-    var stadium = {
-      name: req.body.name,
-      opened: firestore.Timestamp.fromDate(new Date(req.body.opened)),
-      location: new firestore.GeoPoint(req.body.location.lat, req.body.location.lon),
-      locality: locality,
-      address: address,
-      phone: phone,
-      website: website,
-      sports: req.body.sports,
-      architects: req.body.architects,
-      cover: req.body.cover,
-      leagues: leagues,
-      tournaments: tournaments
-    };
-    return db.collection('stadium').add(stadium).then();
-  }).then(function (docRef) {
-    res.status(201).json(docRef.id);
+    } else {
+      throw {message: 'Only admin users can do this.'};
+    }
   }).catch(function (err) {
-    console.log(err);
+    res.status(401).json(err);
   });
 });
 

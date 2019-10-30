@@ -81,7 +81,17 @@ router.get('/profile/:userId', function (req, res) {
     if (err) {
       return res.status(400).json(err);
     }
-    res.json(result);
+    auth.verifyIdToken(req.headers.authorization || '').then(function (decodedIdToken) {
+      return db.collection('follow').doc(decodedIdToken.uid).get();
+    }).then(function (docSnapshot) {
+      if (docSnapshot.data().following) {
+        result.following = true;
+        res.json(result);
+      }
+    }).catch(function (err) {
+      result.following = false;
+      res.json(result);
+    })
   });
 });
 
@@ -101,7 +111,7 @@ router.put('/:userId', function (req, res) {
 })
 
 router.get('/', function (req, res) {
-  auth.verifyIdToken(req.headers.authorization).then(function (result) {
+  auth.verifyIdToken(req.headers.authorization || '').then(function (result) {
     const uid = result.uid;
     getUser(uid, function (err, result) {
       if (err) {
@@ -112,6 +122,24 @@ router.get('/', function (req, res) {
   }).catch(function (err) {
     res.status(401).json(err);
   });
+});
+
+router.get('/resetPassword', function (req, res) {
+  auth.verifyIdToken(req.headers.authorization || '').then(function (result) {
+    return rp.post({
+      uri: 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=' + FIREBASE_API_KEY,
+      form: {
+        email: result.email,
+        requestType: 'PASSWORD_RESET'
+      },
+      json: true
+    });
+  }).then(function (result) {
+    res.json(result);
+  }).catch(function (err) {
+    res.status(401).json(err);
+  });
+  
 });
 
 var getUser = function (uid, callback) {
@@ -127,7 +155,7 @@ var getUser = function (uid, callback) {
       }).catch(callback);
     },
     reviews: function (callback) {
-      db.collection('review').where('author', '==', uid).get().then(function (querySnapshot) {
+      db.collection('review').where('author', '==', uid).orderBy('timestamp', 'desc').get().then(function (querySnapshot) {
         var stadiums = Array.from(new Set(querySnapshot.docs.map(function (doc) {
           return doc.data().stadiumId;
         })));
@@ -151,7 +179,22 @@ var getUser = function (uid, callback) {
           callback(null, reviews);
         });
       }).catch(function (err) {
-        console.log(err);
+        callback(err);
+      });
+    },
+    follow: function (callback) {
+      db.collection('follow').doc(uid).get().then(function (docSnapshot) {
+        var result = {
+          following: [],
+          follower: []
+        };
+        if (docSnapshot.exists) {
+          var data = docSnapshot.data()
+          result.following = data.following ? Object.keys(data.following) : [];
+          result.follower = data.follower ? Object.keys(data.follower) : [];
+        }
+        callback(null, result);
+      }).catch(function (err) {
         callback(err);
       });
     }
