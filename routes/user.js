@@ -7,6 +7,18 @@ var db = require('../firebase').db;
 var FIREBASE_API_KEY = require('../secrets').FIREBASE_API_KEY;
 var processReviewData = require('./review').professReviewData;
 
+Array.prototype.unique = function() {
+  var a = this.concat();
+  for(var i=0; i<a.length; ++i) {
+      for(var j=i+1; j<a.length; ++j) {
+          if(a[i] === a[j])
+              a.splice(j--, 1);
+      }
+  }
+
+  return a;
+};
+
 router.post('/', function (req, res) {
   var token, expirationTime, refreshToken;
   rp.post({
@@ -84,30 +96,71 @@ router.get('/profile/:userId', function (req, res) {
     auth.verifyIdToken(req.headers.authorization || '').then(function (decodedIdToken) {
       return db.collection('follow').doc(decodedIdToken.uid).get();
     }).then(function (docSnapshot) {
-      if (docSnapshot.data().following) {
+      if (docSnapshot.data().following[req.params.userId]) {
         result.following = true;
-        res.json(result);
+      } else {
+        result.following = false;
       }
+      res.json(result);
     }).catch(function (err) {
+      console.log(err);
       result.following = false;
       res.json(result);
     })
   });
 });
 
-router.put('/:userId', function (req, res) {
-  var updates = {};
-  updates.firstName = req.body.firstName;
-  updates.lastName = req.body.lastName;
-  updates.profilePic = req.body.profilePic;
-  Object.keys(updates).forEach(function (key) {
-    if (!updates[key]) {
-      delete updates[key];
-    }
+router.post('/batchPreview', function (req, res) {
+  var parallelFunctions = (req.body.ids || []).map(function (id) {
+    return function (callback) {
+      db.collection('user').doc(id).get().then(function (docSnapshot) {
+        var data = docSnapshot.data();
+        callback(null, {
+          name: data.firstName + ' ' + data.lastName,
+          profilePic: data.profilePic,
+          id: docSnapshot.id
+        });
+      }).catch(function (err) {
+        callback(err);
+      });
+    };
   });
-  db.collection('user').doc(req.params.userId).update(updates).then(function () {
-    res.status(201).json({message: 'updated'});
-  }).catch(res.status(400).json);
+  async.parallel(parallelFunctions, function (err, users) {
+    if (err) {
+      res.status(400).json(err);
+    } else {
+      res.json(users);
+    }
+  })
+});
+
+router.put('/', function (req, res) {
+  auth.verifyIdToken(req.headers.authorization || '').then(function (decodedIdToken) {
+    var updates = {};
+    updates.firstName = req.body.firstName;
+    updates.lastName = req.body.lastName;
+    updates.profilePic = req.body.profilePic;
+    Object.keys(updates).forEach(function (key) {
+      if (!updates[key]) {
+        delete updates[key];
+      }
+    });
+    db.collection('user').doc(decodedIdToken.uid).update(updates).then(function () {
+      return db.collection('user').doc(decodedIdToken.uid).get();
+    }).then(function (docSnapshot) {
+      if (docSnapshot.exists) {
+        res.status(201).json({
+          ...docSnapshot.data(),
+          id: docSnapshot.id,
+        });
+      }
+    }).catch(function (err) {
+      res.status(400).json({message: err.toString()});
+    });
+  }).catch(function (err) {
+    res.status(401).json(err);
+  });
+  
 })
 
 router.get('/', function (req, res) {
@@ -174,7 +227,7 @@ var getUser = function (uid, callback) {
             throw err;
           }
           var reviews = querySnapshot.docs.map(function (doc) {
-            return processReviewData(doc, { stadiumData: stadiumData });
+            return processReviewData(doc, { stadium: stadiumData[doc.data().stadiumId] });
           });
           callback(null, reviews);
         });
@@ -184,16 +237,52 @@ var getUser = function (uid, callback) {
     },
     follow: function (callback) {
       db.collection('follow').doc(uid).get().then(function (docSnapshot) {
-        var result = {
-          following: [],
-          follower: []
-        };
         if (docSnapshot.exists) {
-          var data = docSnapshot.data()
-          result.following = data.following ? Object.keys(data.following) : [];
-          result.follower = data.follower ? Object.keys(data.follower) : [];
+          var data = docSnapshot.data();
+          data.following = data.following || {};
+          data.follower = data.follower || {};
+          var following = Object.keys(data.following);
+          var followers = Object.keys(data.follower);
+          var parallelFunctions = {};
+          var uids = following.concat(followers).unique();
+          uids.forEach(function (uid) {
+            parallelFunctions[uid] = function (callback) {
+              db.collection('user').doc(uid).get().then(function (docSnapshot) {
+                var data = docSnapshot.data();
+                callback(null, {
+                  name: data.firstName + ' ' + data.lastName,
+                  profilePic: data.profilePic,
+                  id: docSnapshot.id
+                });
+              }).catch(function (err) {
+                callback(err);
+              });
+            };
+          });
+          async.parallel(parallelFunctions, function (err, result) {
+            if (err) {
+              callback(err);
+            } else {
+              var resultFollowing = {};
+              var resultFollowers = {};
+              Object.keys(data.following).forEach(function (uid) {
+                resultFollowing[uid] = result[uid];
+              });
+              Object.keys(data.follower).forEach(function (uid) {
+                resultFollowers[uid] = result[uid];
+              });
+              callback(null, {
+                following: resultFollowing,
+                followers: resultFollowers
+              });
+            }
+          });
+        } else {
+          callback(null, {
+            following: {},
+            followers: {}
+          })
         }
-        callback(null, result);
       }).catch(function (err) {
         callback(err);
       });

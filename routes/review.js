@@ -29,7 +29,7 @@ router.get('/', function (req, res) {
 
   if (reviewId) {
     db.doc(`/review/${reviewId}`).get().then(function (querySnapshot) {
-      res.json(processData(querySnapshot));
+      res.json(processReviewData(querySnapshot));
     }).catch(function (err) {
       res.status(400).json(err);
     });
@@ -44,6 +44,7 @@ router.get('/', function (req, res) {
           db.doc('user/' + author).get().then(function (docSnapshot) {
             callback(null, docSnapshot.data());
           }).catch(function (err) {
+            console.log(err)
             callback(err);
           }); 
         }
@@ -53,7 +54,7 @@ router.get('/', function (req, res) {
           throw err;
         }
         var reviews = querySnapshot.docs.map(function (doc) {
-          return processData(doc, { userData: userData });
+          return processReviewData(doc, { user: userData[doc.data().author] });
         });
         res.json(reviews);
       });
@@ -66,38 +67,30 @@ router.get('/', function (req, res) {
   return;
 });
 
-router.get('/user/:userId', function (req, res) {
-  db.collection('review').where('author', '==', req.params.userId).get().then(function (querySnapshot) {
-    var reviews = querySnapshot.docs.map(function (doc) {
-      return processData(doc);
-    });
-    res.json(reviews);
-  });
-})
-
-var processData = function (snapshot, additionalData) {
+var processReviewData = function (snapshot, additionalData) {
   var data = snapshot.data();
   var result = {
     ...data,
     timestamp: data.timestamp.toDate(),
     id: snapshot.id,
   };
-  if (additionalData && additionalData.userData && additionalData.userData[data.author]) {
+  if (additionalData && additionalData.user) {
     result.author = {
       id: data.author,
-      ...additionalData.userData[data.author]
+      name: additionalData.user.firstName + ' ' + additionalData.user.lastName,
+      profilePic: additionalData.user.profilePic
     }
   }
-  if (additionalData && additionalData.stadiumData && additionalData.stadiumData[data.stadiumId]) {
+  if (additionalData && additionalData.stadium) {
     result.stadium = {
       id: data.stadiumId,
-      ...additionalData.stadiumData[data.stadiumId]
+      name: additionalData.stadium.name,
+      locality: additionalData.stadium.locality,
+      cover: additionalData.stadium.photoReferences[0]
     }
   }
   return result;
 }
 
-// module.exports = router;
-
 exports.router = router;
-exports.professReviewData = processData;
+exports.professReviewData = processReviewData;
