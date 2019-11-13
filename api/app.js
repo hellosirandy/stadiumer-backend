@@ -2,7 +2,6 @@ var express = require('express');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var cors = require('cors');
-require('./firebase');
 
 var indexRouter = require('./routes/index');
 var stadiumRouter = require('./routes/stadium');
