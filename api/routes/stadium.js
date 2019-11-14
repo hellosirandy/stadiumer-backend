@@ -1,7 +1,7 @@
-var express = require('express');
-var rp = require('request-promise');
-var router = express.Router();
-var firestore = require('firebase-admin').firestore;
+const express = require('express');
+const rp = require('request-promise');
+const router = express.Router();
+const firestore = require('firebase-admin').firestore;
 const db = require('firebase-admin').firestore();
 const GOOGLE_MAP_API_KEY = require('../../secrets').GOOGLE_API_KEY;
 const verifyIdToken = require('../middlewares').verifyIdToken;
@@ -9,8 +9,11 @@ const algoliasearch = require('algoliasearch');
 const algoliaAPIKEY = require('../../secrets').ALGOLIA_API_KEY;
 const client = algoliasearch('U596FP80VW', algoliaAPIKEY);
 const stadiumIndex = client.initIndex('stadium');
+const Stadium = require('../models/stadium');
+const User = require('../models/user');
+const StadiumList = require('../models/stadiumList');
 
-var leagueSportMap = {
+const leagueSportMap = {
   MLB: 'baseball',
   NFL: 'football',
   'Premier League': 'soccer',
@@ -20,78 +23,59 @@ var leagueSportMap = {
   NBA: 'basketball'
 }
 
-var tournamentSportMap = {
+const tournamentSportMap = {
   'UEFA Euro 2016': 'soccer'
 }
 
 router.get('/', async (req, res) => {
   const limit = Number(req.query.limit) || 0;
   if (req.query.id) {
-    const docSnapshot = await db.collection('stadium').doc(req.query.id).get();
-    const stadium = processStadium(docSnapshot);
-    stadium.recommendations = await getRecommendation(stadium);
-    stadium.rating = await getRating(req.query.id);
-    return res.json(stadium);
+    const stadium = new Stadium(req.query.id);
+    let data = await stadium.get();
+    data = processStadium(data);
+    const recommendations = await stadium.getRecommendations();
+    data.recommendations = recommendations.map(r => processStadium(r));
+    return res.json(data);
   } else if (req.query.league || req.query.tournament) {
     const type = decodeURIComponent(req.query.league ? 'leagues' : 'tournaments');
-    const results = await getByLeagueOrTournament(type, req.query.league || req.query.tournament, limit);
-    return res.json(results);
+    const stadiumList = new StadiumList();
+    const results = await stadiumList.getByLeagueOrTournament(type, req.query.league || req.query.tournament, limit);
+    return res.json(results.map(processStadium));
   }
   return res.status(400).json({ message: 'Invalid request.' });
 });
 
-var getRecommendation = (stadium) => {
-  return db.collection('stadium').limit(6).where(`sports.${stadium.sports[0]}.capacity`, '>', 0).get().then((querySnapshot) => {
-    var recommendations = querySnapshot.docs.filter((doc) => {
-      return doc.id !== stadium.id;
-    }).map(processStadium);
-    return recommendations;
-  });
-}
-
-router.get('/detail/:stadiumId', async (req, res) => {
-  console.log(req.params.stadiumId);
-  const docSnapshot = await db.collection('stadium').doc(req.params.stadiumId).get();
-  const stadium = processStadium(docSnapshot);
-  const [rating, recommendations] = await Promise.all([
-    getRating(req.params.stadiumId),
-    getRecommendation(stadium)
-  ]);
+router.get('/detail/:sid', async (req, res) => {
+  const stadium = new Stadium(req.params.sid);
+  const recommendations = await stadium.getRecommendations();
   return res.json({
-    rating,
-    recommendations
+    recommendations: recommendations.map(r => processStadium(r))
   });
 });
 
 router.get('/firstload', async (req, res) => {
   const leagues = shuffle(Object.keys(leagueSportMap));
+  const stadiumList = new StadiumList();
   const [recommended, league1, league2, count] = await Promise.all([
-    new Promise(async (resolve) => {
-      const querySnapshot = await db.collection('stadium').limit(8).get()
-      resolve(querySnapshot.docs.map((doc) => {
-        return processStadium(doc);
-      }));
-    }),
-    getByLeagueOrTournament('leagues', leagues[0]),
-    getByLeagueOrTournament('leagues', leagues[1]),
-    new Promise(async (resolve) => {
-      const docSnapshot = await db.collection('counter').doc('stadium').get();
-      resolve(docSnapshot.data().count);
-    })
+    stadiumList.getRecommended(),
+    stadiumList.getByLeagueOrTournament('leagues', leagues[0]),
+    stadiumList.getByLeagueOrTournament('leagues', leagues[1]),
+    stadiumList.getCount()
   ]);
   return res.json({
     groupStadiums: {
-      Recommended: recommended,
-      [leagues[0]]: league1,
-      [leagues[1]]: league2,
+      Recommended: recommended.map(processStadium),
+      [leagues[0]]: league1.map(processStadium),
+      [leagues[1]]: league2.map(processStadium),
     },
     count
   });
 });
 
 router.post('/', verifyIdToken, async (req, res) => {
-  const docSnapshot = await db.collection('user').doc(req.user.uid).get();
-  if (docSnapshot.data().role !== 'admin') {
+  const user = new User(req.user.uid);
+  const userData = await user.get();
+  if (userData.role !== 'admin') {
     return res.status(401).json({ message: 'Only admin can edit stadium' });
   }
   const placeSearchUri = 'https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=' +
@@ -124,7 +108,7 @@ router.post('/', verifyIdToken, async (req, res) => {
       tournaments.push(tournament);
     });
   });
-  const stadium = {
+  const newStadium = {
     googlePlaceId: placeId,
     name: req.body.name,
     opened: firestore.Timestamp.fromDate(new Date(req.body.opened)),
@@ -139,7 +123,8 @@ router.post('/', verifyIdToken, async (req, res) => {
     tournaments: tournaments,
     photoReferences: photoReferences
   };
-  const docRef = await db.collection('stadium').add(stadium);
+  const stadium = new Stadium();
+  const docRef = await stadium.create(newStadium);
   const stadiumRecord = {
     name: stadium.name,
     league: leagues,
@@ -150,38 +135,38 @@ router.post('/', verifyIdToken, async (req, res) => {
   return res.status(201).json(docRef.id);
 });
 
-router.delete('/:stadiumId', verifyIdToken, async (req, res) => {
-  const docSnapshot = await db.collection('user').doc(req.user.uid).get();
-  if (docSnapshot.data().role !== 'admin') {
+router.delete('/:sid', verifyIdToken, async (req, res) => {
+  const user = new User(req.user.uid);
+  const userData = await user.get();
+  if (userData.role !== 'admin') {
     return res.status(401).json({ message: 'Only admin can edit stadium' });
   }
-  await db.collection('stadium').doc(req.params.stadiumId).delete();
+  const stadium = new Stadium(req.params.sid);
+  await stadium.delete();
   return res.json({ message: 'Deleted.' })
 });
 
-var processStadium = function (doc) {
-  var data = doc.data();
-  var sports = Object.keys(data.sports);
+var processStadium = function (stadium) {
+  var sports = Object.keys(stadium.sports);
   var tenants = {};
   sports.forEach((sport) => {
-    Object.keys(data.sports[sport].leagues || {}).forEach((league) => {
-      Object.keys(data.sports[sport].leagues[league] || {}).forEach(team => {
+    Object.keys(stadium.sports[sport].leagues || {}).forEach((league) => {
+      Object.keys(stadium.sports[sport].leagues[league] || {}).forEach(team => {
         tenants[team] = league;
       });
     });
   });
-  var capacities = sports.map(sport => data.sports[sport].capacity)
+  var capacities = sports.map(sport => stadium.sports[sport].capacity)
   var capacity = Math.max.apply(Math, capacities);
-  return Object.assign(data, {
-    id: doc.id,
-    opened: data.opened.toDate(),
+  return Object.assign(stadium, {
+    opened: stadium.opened.toDate(),
     capacity,
     location: {
-      lat: data.location.latitude,
-      lng: data.location.longitude
+      lat: stadium.location.latitude,
+      lng: stadium.location.longitude
     },
     sports: sports,
-    architects: Object.keys(data.architects),
+    architects: Object.keys(stadium.architects),
     tenants: tenants
   })
 };
@@ -196,31 +181,6 @@ var shuffle = function (array) {
     array[randomIndex] = temporaryValue;
   }
   return array;
-}
-
-var getByLeagueOrTournament = function (type, value, limit=8) {
-  return db.collection('stadium').limit(limit).where(type, 'array-contains', value).get()
-  .then((querySnapshot) => {
-    return querySnapshot.docs.map((doc) => {
-      return processStadium(doc);
-    });
-  });
-}
-
-var getRating = function (stadiumId) {
-  return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
-    if (docSnapshot.exists) {
-      var data = docSnapshot.data();
-      return {
-        rating: data.rating / data.count,
-        count: data.count
-      };
-    }
-    return {
-      rating: 0,
-      count: 0
-    };
-  });
 }
 
 module.exports = router;

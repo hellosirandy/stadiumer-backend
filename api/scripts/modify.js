@@ -11,10 +11,25 @@ const firestore = admin.firestore;
 const db = firestore();
 
 const modify = async () => {
-  const reviewQuerySnapshot = await db.collection('review').get();
-  await Promise.all(reviewQuerySnapshot.docs.map(async reviewDoc => {
-    const reviewData = reviewDoc.data();
-    await db.collection('user').doc(reviewData.author).collection('reviews').doc(reviewDoc.id).set({});
+  const querySnapshot = await db.collection('follow').get();
+  await Promise.all(querySnapshot.docs.map(async doc => {
+    const data = doc.data();
+    console.log(doc.id)
+    await db.collection('follows').doc(doc.id).set(data);
+    const [followingQuerySnapshot, followersQuerySnapshot] = await Promise.all([
+      await db.collection('follow').doc(doc.id).collection('following').get(),
+      await db.collection('follow').doc(doc.id).collection('followers').get()
+    ]);
+    if (!followingQuerySnapshot.empty) {
+      await Promise.all(followingQuerySnapshot.docs.map(
+        followingDoc => db.collection('follows').doc(doc.id).collection('following').doc(followingDoc.id).set(followingDoc.data()))
+      )
+    }
+    if (!followersQuerySnapshot.empty) {
+      await Promise.all(followersQuerySnapshot.docs.map(
+        followerDoc => db.collection('follows').doc(doc.id).collection('followers').doc(followerDoc.id).set(followerDoc.data()))
+      )
+    }
   }));
 }
 

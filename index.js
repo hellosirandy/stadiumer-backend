@@ -28,18 +28,22 @@ exports.reviewWriteListener = functions.firestore.document('review/{reviewId}').
   if (!change.before.exists) {
     const data = change.after.data();
     const { stadiumId } = data;
-    return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
-      if (docSnapshot.exists) {
-        return db.collection('rating').doc(stadiumId).update({
-          rating: firestore.FieldValue.increment(data.rating),
-          count: firestore.FieldValue.increment(1)
-        })
-      }
-      return db.collection('rating').doc(stadiumId).set({
-        rating: data.rating,
-        count: 1
-      })
+    return db.collection('stadium').doc(stadiumId).update({
+      'rating.rating': firestore.FieldValue.increment(data.rating),
+      'rating.count': firestore.FieldValue.increment(1)
     });
+    // return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
+    //   if (docSnapshot.exists) {
+    //     return db.collection('rating').doc(stadiumId).update({
+    //       rating: firestore.FieldValue.increment(data.rating),
+    //       count: firestore.FieldValue.increment(1)
+    //     })
+    //   }
+    //   return db.collection('rating').doc(stadiumId).set({
+    //     rating: data.rating,
+    //     count: 1
+    //   })
+    // });
 
   } else if (change.before.exists && change.after.exists) {
     // Updating existing document : Do nothing
@@ -47,15 +51,19 @@ exports.reviewWriteListener = functions.firestore.document('review/{reviewId}').
   } else if (!change.after.exists) {
     const data = change.before.data();
     const { stadiumId } = data;
-    return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
-      if (docSnapshot.exists) {
-        return db.collection('rating').doc(stadiumId).update({
-          rating: firestore.FieldValue.increment(-data.rating),
-          count: firestore.FieldValue.increment(-1)
-        })
-      }
-      return 0;
+    return db.collection('stadium').doc(stadiumId).update({
+      'rating.rating': firestore.FieldValue.increment(-data.rating),
+      'rating.count': firestore.FieldValue.increment(-1)
     });
+    // return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
+    //   if (docSnapshot.exists) {
+    //     return db.collection('rating').doc(stadiumId).update({
+    //       rating: firestore.FieldValue.increment(-data.rating),
+    //       count: firestore.FieldValue.increment(-1)
+    //     })
+    //   }
+    //   return 0;
+    // });
   }
   return 0;
 });
