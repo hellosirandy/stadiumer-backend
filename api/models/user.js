@@ -17,7 +17,7 @@ class User {
   }
 
   async getReviewsIds() {
-    const querySnapshot = await db.collection('users').doc(this.uid).collection('reviews').get();
+    const querySnapshot = await db.collection('users').doc(this.uid).collection('reviews').orderBy("timestamp", "desc").get();
     return querySnapshot.docs.map(doc => doc.id);
   }
 
@@ -51,6 +51,14 @@ class User {
     return this.get();
   }
 
+  likeReview(like, rid) {
+    if (like) {
+      return db.collection('users').doc(this.uid).collection('likes').doc(rid).set({});
+    } else {
+      return db.collection('users').doc(this.uid).collection('likes').doc(rid).delete();
+    }
+  }
+
   async getFollow(collection) {
     const querySnapshot = await db.collection('follows').doc(this.uid).collection(collection).get();
     return querySnapshot.docs.map(doc => doc.id);
@@ -71,6 +79,7 @@ class User {
   }
 
   addReview(rid, timestamp) {
+    console.log(this.uid, rid);
     return db.collection('users').doc(this.uid).collection('reviews').doc(rid).set({ timestamp });
   }
 

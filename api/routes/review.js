@@ -20,14 +20,18 @@ router.post('/', verifyIdToken, async (req, res) => {
       stadiumId: req.body.stadiumId
     };
     const review = new Review();
-    await review.create(newReview);
     const user = new User(uid);
     const stadium = new Stadium(req.body.stadiumId);
+    const [createdReview, stadiumData, userData] = await Promise.all([
+      review.create(newReview),
+      stadium.get(),
+      user.get()
+    ]);
     await Promise.all([
       user.addReview(review.id, timestamp),
       stadium.addReview(review.id, timestamp)
     ]);
-    return res.status(201).json({ message: 'Success.' });
+    return res.status(201).json(await processReviewData(createdReview, { stadium: stadiumData, user: userData }));
   } catch (e) {
     console.error(e);
     return res.status(400).json({ message: 'Failed to leave review.' });
@@ -40,8 +44,6 @@ router.get('/', async (req, res) => {
 
   if (reviewId) {
     try {
-      // const querySnapshot = await db.doc(`/review/${reviewId}`).get();
-      // return res.json(await processReviewData(Object.assign(querySnapshot.data, { id: querySnapshot.id })));
       return res.json(await processReviewData(new Review(reviewId).get()));
     } catch (e) {
       return res.status(400).json(e);
@@ -91,8 +93,15 @@ router.delete('/:rid', verifyIdToken, async (req, res) => {
   }
 });
 
+router.post('/like', verifyIdToken, (req, res) => {
+  const rid = req.body.rid;
+  const review = new Review(rid);
+  const uid = req.user.uid;
+  const user = new User(uid);
+  
+});
+
 const processReviewData = async (data, additionalData) => {
-  // const data = snapshot.data();
   const result = Object.assign(data, {
     timestamp: data.timestamp.toDate(),
   });

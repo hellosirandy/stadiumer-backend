@@ -25,14 +25,22 @@ router.post('/', async (req, res) => {
     const token = payload.idToken;
     const expirationTime = Date.now() + Number(payload.expiresIn) * 1000;
     const refreshToken = payload.refreshToken;
-    const user = new User(payload.localId);
-    await user.create({
-      firstName: req.body.firstName,
-      lastName: req.body.lastName
-    })
-    return res.json({ token, expirationTime, refreshToken });
+    try {
+      const user = new User(payload.localId);
+      await user.create({
+        firstName: req.body.firstName,
+        lastName: req.body.lastName
+      })
+      return res.json({ token, expirationTime, refreshToken });
+    } catch (e) {
+      return res.status(400).json({
+        message: 'Unable to create user.'
+      });
+    }
   } catch (e) {
-    return res.status(400).json(e);
+    return res.status(400).json({
+      message: 'Invalid email or password'
+    });
   }
 });
 
@@ -53,7 +61,9 @@ router.post('/signin', async (req, res) => {
       refreshToken: payload.refreshToken
     });
   } catch (e) {
-    return res.status(401).json(e);
+    return res.status(401).json({
+      message: 'Invalid email or password',
+    });
   }
 });
 

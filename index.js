@@ -12,10 +12,10 @@ const app = require('./api/app');
 
 exports.api = functions.https.onRequest(app);
 
-exports.stadiumWriteListener = functions.firestore.document('stadium/{stadiumId}').onWrite(async (change, context) => {
+exports.stadiumWriteListener = functions.firestore.document('stadiums/{stadiumId}').onWrite(async (change, context) => {
 
   if (!change.before.exists || !change.after.exists) {
-    const querySnapshot = await db.collection('stadium').get();
+    const querySnapshot = await db.collection('stadiums').get();
     return db.collection('counter').doc('stadium').update({
       count: querySnapshot.size
     });
@@ -23,27 +23,15 @@ exports.stadiumWriteListener = functions.firestore.document('stadium/{stadiumId}
   return 0;
 });
 
-exports.reviewWriteListener = functions.firestore.document('review/{reviewId}').onWrite((change, context) => {
+exports.reviewWriteListener = functions.firestore.document('reviews/{reviewId}').onWrite((change, context) => {
 
   if (!change.before.exists) {
     const data = change.after.data();
     const { stadiumId } = data;
-    return db.collection('stadium').doc(stadiumId).update({
+    return db.collection('stadiums').doc(stadiumId).update({
       'rating.rating': firestore.FieldValue.increment(data.rating),
       'rating.count': firestore.FieldValue.increment(1)
     });
-    // return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
-    //   if (docSnapshot.exists) {
-    //     return db.collection('rating').doc(stadiumId).update({
-    //       rating: firestore.FieldValue.increment(data.rating),
-    //       count: firestore.FieldValue.increment(1)
-    //     })
-    //   }
-    //   return db.collection('rating').doc(stadiumId).set({
-    //     rating: data.rating,
-    //     count: 1
-    //   })
-    // });
 
   } else if (change.before.exists && change.after.exists) {
     // Updating existing document : Do nothing
@@ -51,19 +39,10 @@ exports.reviewWriteListener = functions.firestore.document('review/{reviewId}').
   } else if (!change.after.exists) {
     const data = change.before.data();
     const { stadiumId } = data;
-    return db.collection('stadium').doc(stadiumId).update({
+    return db.collection('stadiums').doc(stadiumId).update({
       'rating.rating': firestore.FieldValue.increment(-data.rating),
       'rating.count': firestore.FieldValue.increment(-1)
     });
-    // return db.collection('rating').doc(stadiumId).get().then((docSnapshot) => {
-    //   if (docSnapshot.exists) {
-    //     return db.collection('rating').doc(stadiumId).update({
-    //       rating: firestore.FieldValue.increment(-data.rating),
-    //       count: firestore.FieldValue.increment(-1)
-    //     })
-    //   }
-    //   return 0;
-    // });
   }
   return 0;
 });

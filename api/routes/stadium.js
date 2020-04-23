@@ -2,7 +2,6 @@ const express = require('express');
 const rp = require('request-promise');
 const router = express.Router();
 const firestore = require('firebase-admin').firestore;
-const db = require('firebase-admin').firestore();
 const GOOGLE_MAP_API_KEY = require('../../secrets').GOOGLE_API_KEY;
 const verifyIdToken = require('../middlewares').verifyIdToken;
 const algoliasearch = require('algoliasearch');
@@ -156,11 +155,15 @@ var processStadium = function (stadium) {
       });
     });
   });
-  var capacities = sports.map(sport => stadium.sports[sport].capacity)
-  var capacity = Math.max.apply(Math, capacities);
+  const capacities = {};
+  sports.forEach(sport => {
+    capacities[sport] = stadium.sports[sport].capacity
+  });
+  const maxCapacity = Math.max.apply(Math, sports.map(sport => stadium.sports[sport].capacity));
   return Object.assign(stadium, {
     opened: stadium.opened.toDate(),
-    capacity,
+    maxCapacity,
+    capacities,
     location: {
       lat: stadium.location.latitude,
       lng: stadium.location.longitude

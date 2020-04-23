@@ -21,6 +21,7 @@ class Review {
   async create(body) {
     const docRef = await db.collection('reviews').add(body);
     this.rid = docRef.id;
+    return this.get();
   }
 
   delete() {
