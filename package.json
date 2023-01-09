@@ -21,8 +21,8 @@
     "debug": "~2.6.9",
     "express": "~4.16.1",
     "firebase": "^7.2.0",
-    "firebase-admin": "^8.6.0",
-    "firebase-functions": "^3.3.0",
+    "firebase-admin": "^11.4.1",
+    "firebase-functions": "^3.24.1",
     "morgan": "~1.9.1",
     "request": "^2.88.0",
     "request-promise": "^4.2.4"
